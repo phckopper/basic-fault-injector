@@ -15,21 +15,27 @@ namespace {
     SkeletonPass() : FunctionPass(ID) {}
 
     virtual bool runOnFunction(Function &F) {
-        if(F.getName() == "main")
-            return false;
-      errs() << "I saw a function called " << F.getName() << "!\n";
+      // Não deve injetar no main
+      if(F.getName() == "main")
+        return false;
+
+      errs() << "Injecting function " << F.getName() << "!\n";
       for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
+        // Imprime cada instrução (para debug)
         errs() << *I << "\n";
         if(I->getOpcode() == Instruction::Ret) {
             ReturnInst* ret = dyn_cast<ReturnInst>(&*I);
             IRBuilder<> builder(ret);
 
-            // Make a multiply with the same operands as `op`.
+            // Inverte o último bit do valor de retorno da função.
             Value* retVal = ret->getReturnValue();
             Value* error = builder.CreateXor(retVal, 0x00000001);
             
+            // Agora o return vai retornar nosso valor errôneo e não mais o valor original
             ret->setOperand(0, error);
-            errs() << "Found return point! and injected it!" << "\n";
+            errs() << "Found return point! and flipped it!" << "\n";
+
+            // Modificamos a função
             return true;
         }
       }
