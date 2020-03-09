@@ -18,7 +18,7 @@ namespace {
     static char ID;
     SkeletonPass() : FunctionPass(ID) {}
     
-    void injectInstruction(Instruction *thisInst) {
+    void injectInstruction(Instruction *thisInst, Value *addrToInject) {
             errs() << "Injecting!!!" << "\n";
             errs() << *thisInst << "\n";
             
@@ -28,7 +28,7 @@ namespace {
 
             IRBuilder<> builder(nextInst);
 
-            Value* cmp = builder.CreateICmpEQ(constAddress, constAddress);
+            Value* cmp = builder.CreateICmpEQ(constAddress, addrToInject);
             Instruction *ThenTerm , *ElseTerm;
             SplitBlockAndInsertIfThenElse(cmp, nextInst, &ThenTerm, &ElseTerm, nullptr);
             builder.SetInsertPoint(ThenTerm);
@@ -47,12 +47,21 @@ namespace {
     virtual bool runOnFunction(Function &F) {
       if(F.getName() == "main")
           return false;
+
+      LLVMContext& Ctx = F.getContext();
+        FunctionCallee shouldInject = F.getParent()->getOrInsertFunction(
+        "shouldInject", Type::getInt64Ty(Ctx)
+      );
+        
+
       errs() << "Injecting function " << F.getName() << "!\n";
-      bool injected = false;
       std::vector<Instruction *> toInject;
 
+      IRBuilder<> builder(F.getEntryBlock().getFirstNonPHIOrDbgOrLifetime());
+      Value *addrToInject = builder.CreateCall(shouldInject);
+
       for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
-        if(I->getType() == Type::getInt32Ty(F.getContext())) {
+        if(I->getType() == Type::getInt32Ty(Ctx)) {
             toInject.push_back(&*I);
         }
       }
@@ -62,13 +71,11 @@ namespace {
         std::uintptr_t address = reinterpret_cast<std::uintptr_t>(I);
         errs() << "Address " << address << ": ";
         errs() << I << "\n";
-        injectInstruction(I);
+        injectInstruction(I, addrToInject);
         // Modificamos a função
-        injected = true;
       }
         
-
-      return injected;
+      return true;
     }
   };
 }
