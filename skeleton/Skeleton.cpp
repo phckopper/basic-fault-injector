@@ -19,31 +19,37 @@ namespace {
     SkeletonPass() : FunctionPass(ID) {}
 
     virtual bool runOnFunction(Function &F) {
+      if(F.getName() == "main")
+          return false;
       errs() << "Injecting function " << F.getName() << "!\n";
       for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
         // Imprime cada instrução (para debug)
-        errs() << "Address " << reinterpret_cast<std::uintptr_t>(&*I) << ": ";
+        std::uintptr_t address = reinterpret_cast<std::uintptr_t>(&*I);
+        errs() << "Address " << address << ": ";
         errs() << *I << "\n";
 
-        if(I->getOpcode() == Instruction::Ret) {
-            ReturnInst* ret = dyn_cast<ReturnInst>(&*I);
-            IRBuilder<> builder(ret);
+        if(I->getType() == Type::getInt32Ty(F.getContext())) {
+            errs() << "Injecting!!!" << "\n";
+            Instruction *thisInst = &*I;
+            errs() << *thisInst << "\n";
+            Instruction *nextInst = I->getNextNode();
+            auto constAddress = ConstantInt::get(Type::getInt64Ty(F.getContext()), address, false);
 
-            // Inverte o último bit do valor de retorno da função.
-            Value* retVal = ret->getReturnValue();
+            IRBuilder<> builder(nextInst);
 
-            Value* cmp = builder.CreateICmpEQ(retVal, retVal);
+            Value* cmp = builder.CreateICmpEQ(constAddress, constAddress);
             Instruction *ThenTerm , *ElseTerm;
-            SplitBlockAndInsertIfThenElse(cmp, ret, &ThenTerm, &ElseTerm, nullptr);
+            SplitBlockAndInsertIfThenElse(cmp, nextInst, &ThenTerm, &ElseTerm, nullptr);
             builder.SetInsertPoint(ThenTerm);
-            Value* error = builder.CreateXor(retVal, 0x00000001);
+            Value* error = builder.CreateXor(thisInst, 0x00000001);
 
-            builder.SetInsertPoint(ret);
+            builder.SetInsertPoint(nextInst);
 
             PHINode* phi = builder.CreatePHI(Type::getInt32Ty(F.getContext()), 2, "injection");
-            phi->addIncoming(retVal, ElseTerm->getParent());
             phi->addIncoming(error, ThenTerm->getParent());
-            ret->setOperand(0, phi);
+            
+            thisInst->replaceUsesOutsideBlock(phi, ThenTerm->getParent());
+            phi->addIncoming(thisInst, ElseTerm->getParent());
 
             // Agora o return vai retornar nosso valor errôneo e não mais o valor original
             errs() << "Found return point! and flipped it!" << "\n";
