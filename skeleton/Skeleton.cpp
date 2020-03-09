@@ -17,23 +17,14 @@ namespace {
   struct SkeletonPass : public FunctionPass {
     static char ID;
     SkeletonPass() : FunctionPass(ID) {}
-
-    virtual bool runOnFunction(Function &F) {
-      if(F.getName() == "main")
-          return false;
-      errs() << "Injecting function " << F.getName() << "!\n";
-      for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
-        // Imprime cada instrução (para debug)
-        std::uintptr_t address = reinterpret_cast<std::uintptr_t>(&*I);
-        errs() << "Address " << address << ": ";
-        errs() << *I << "\n";
-
-        if(I->getType() == Type::getInt32Ty(F.getContext())) {
+    
+    void injectInstruction(Instruction *thisInst) {
             errs() << "Injecting!!!" << "\n";
-            Instruction *thisInst = &*I;
             errs() << *thisInst << "\n";
-            Instruction *nextInst = I->getNextNode();
-            auto constAddress = ConstantInt::get(Type::getInt64Ty(F.getContext()), address, false);
+            
+            std::uintptr_t address = reinterpret_cast<std::uintptr_t>(thisInst);
+            Instruction *nextInst = thisInst->getNextNode();
+            auto constAddress = ConstantInt::get(Type::getInt64Ty(thisInst->getContext()), address, false);
 
             IRBuilder<> builder(nextInst);
 
@@ -45,20 +36,39 @@ namespace {
 
             builder.SetInsertPoint(nextInst);
 
-            PHINode* phi = builder.CreatePHI(Type::getInt32Ty(F.getContext()), 2, "injection");
+            PHINode* phi = builder.CreatePHI(Type::getInt32Ty(thisInst->getContext()), 2, "injection");
             phi->addIncoming(error, ThenTerm->getParent());
             
             thisInst->replaceUsesOutsideBlock(phi, ThenTerm->getParent());
             phi->addIncoming(thisInst, ElseTerm->getParent());
 
-            // Agora o return vai retornar nosso valor errôneo e não mais o valor original
-            errs() << "Found return point! and flipped it!" << "\n";
+    }
 
-            // Modificamos a função
-            return true;
+    virtual bool runOnFunction(Function &F) {
+      if(F.getName() == "main")
+          return false;
+      errs() << "Injecting function " << F.getName() << "!\n";
+      bool injected = false;
+      std::vector<Instruction *> toInject;
+
+      for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
+        if(I->getType() == Type::getInt32Ty(F.getContext())) {
+            toInject.push_back(&*I);
         }
       }
-      return false;
+
+      for(Instruction *I: toInject) {
+        // Imprime cada instrução (para debug)
+        std::uintptr_t address = reinterpret_cast<std::uintptr_t>(I);
+        errs() << "Address " << address << ": ";
+        errs() << I << "\n";
+        injectInstruction(I);
+        // Modificamos a função
+        injected = true;
+      }
+        
+
+      return injected;
     }
   };
 }
